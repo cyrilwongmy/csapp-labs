@@ -63,6 +63,7 @@ RUN code-server --install-extension yzhang.markdown-all-in-one
 # Material Theme Extension
 RUN code-server --install-extension equinusocio.vsc-material-theme 
 
+RUN code-server --install-extension gengjiawen.vim
 USER root
 
 # Python3-pip
