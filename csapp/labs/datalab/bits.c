@@ -331,15 +331,15 @@ int floatFloat2Int(unsigned uf) {
 
   int E = e - 127;
   frac = frac | (1 << 23); // implicit leading 1.frac
-  if (E < 0) {
+  if (E < 0) {             // denorm, zero, norm number < 1
     return 0;
-  } else if (E >= 31) {
+  } else if (E >= 31) { // 1.frac as most we can have 32 bits - 1 bit(sign bit)
     return 0x80000000u;
   } else {
-    if (E < 23) {
+    if (E < 23) { // chunck
       frac >>= (23 - E);
     } else {
-      frac <<= (E - 23);
+      frac <<= (E - 23); // extend with 0
     }
   }
 
@@ -361,4 +361,20 @@ int floatFloat2Int(unsigned uf) {
  *   Max ops: 30
  *   Rating: 4
  */
-unsigned floatPower2(int x) { return 2; }
+unsigned floatPower2(int x) {
+  if (x < -149) {
+    return 0;
+  } else if (x < -126) { // denorm [2^{-149}, 2^{-126} x (1 - 2^{-23})]
+    // M x 2^{-126} = 2^x
+    // M = 2^{x + 126}
+    // M is 1 left shift n bits
+    // x + 126 = -(23 - n)
+    // n = x + 149
+    return 1 << (x + 149);
+  } else if (x < 128) {
+    // E = e - 127
+    return (x + 127) << 23;
+  } else { // overflow to inf
+    return (0xFF) << 23;
+  }
+}
