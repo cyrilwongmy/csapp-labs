@@ -13,6 +13,7 @@
  * case it's OK.
  */
 
+#include <stdio.h>
 #if 0
 /*
  * Instructions to Students:
@@ -230,16 +231,6 @@ int isLessOrEqual(int x, int y) {
   int is_same_sign = !(sign_x ^ sign_y);
   int diff_sign = ((x + (~(y + 1) + 1)) >> 31);
 
-  // if (is_same_sign) {
-  //    // x <= y ===> x < y + 1, y + 1 can also make sure y won't overflow when converting from negative to positive
-  //    int diff = x + (~(y + 1) + 1);
-  //    if (diff >> 31 == 1) return 1;
-  //    else return 0;
-  // } else {
-  //    if (sign_x > 0) return 0;
-  //    else return 1;
-  // }
-
   return (is_same_sign & diff_sign) | (!is_same_sign & sign_x);
 }
 // 4
@@ -251,9 +242,7 @@ int isLessOrEqual(int x, int y) {
  *   Max ops: 12
  *   Rating: 4
  */
-int logicalNeg(int x) {
-   return ((x | (~x + 1)) >> 31) + 1;
-}
+int logicalNeg(int x) { return ((x | (~x + 1)) >> 31) + 1; }
 
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
@@ -268,20 +257,20 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-   // 1. check x > 0 or x < 0
-   int sign = (x >> 31); // 1 = x < 0, 0 = x >= 0
-   x = (sign & ~x) | (~sign & x);
-   int w_16 = (!!(x >> 16) << 4);
-   x = (x >> w_16);
-   int w_8 = (!!(x >> 8) << 3);
-   x = (x >> w_8);
-   int w_4 = (!!(x >> 4) << 2);
-   x = (x >> w_4);
-   int w_2 = (!!(x >> 2) << 1);
-   x = (x >> w_2);
-   int w_1 = (!!(x >> 1));
-   x = (x >> w_1);
-   return w_16 + w_8 + w_4 + w_2 + w_1 + x + 1;
+  // 1. check x > 0 or x < 0
+  int sign = (x >> 31); // 1 = x < 0, 0 = x >= 0
+  x = (sign & ~x) | (~sign & x);
+  int w_16 = (!!(x >> 16) << 4);
+  x = (x >> w_16);
+  int w_8 = (!!(x >> 8) << 3);
+  x = (x >> w_8);
+  int w_4 = (!!(x >> 4) << 2);
+  x = (x >> w_4);
+  int w_2 = (!!(x >> 2) << 1);
+  x = (x >> w_2);
+  int w_1 = (!!(x >> 1));
+  x = (x >> w_1);
+  return w_16 + w_8 + w_4 + w_2 + w_1 + x + 1;
 }
 // float
 /*
@@ -295,7 +284,33 @@ int howManyBits(int x) {
  *   Max ops: 30
  *   Rating: 4
  */
-unsigned floatScale2(unsigned uf) { return 2; }
+unsigned floatScale2(unsigned uf) {
+  // 1. zero, no change
+  if ((!uf) == 1) {
+    return 0;
+  }
+
+  unsigned exp = ((uf >> 23) & 0xFF);
+  unsigned frac = (uf & 0x7FFFFF);
+  unsigned res = uf;
+  unsigned sign = uf & 0x80000000;
+  // 4. inf
+  if (exp == 0xFF) {
+    return uf;
+  }
+
+  // 2. denorm, frac << 1
+  if (exp == 0) {
+    return (frac << 1) | sign;
+  }
+
+  // 3. norm, exp + 1
+  // may overflow to inf when exp = 100..0
+  if ((exp + 1) == 0xFF) {
+    frac = 0;
+  }
+  return ((exp + 1) << 23) + frac | sign;
+}
 /*
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
  *   for floating point argument f.
@@ -308,7 +323,31 @@ unsigned floatScale2(unsigned uf) { return 2; }
  *   Max ops: 30
  *   Rating: 4
  */
-int floatFloat2Int(unsigned uf) { return 2; }
+int floatFloat2Int(unsigned uf) {
+  // V = (-1)^s x M x 2^E
+  unsigned sign = (uf >> 31) & 0x1;
+  unsigned frac = uf & 0x7FFFFF;
+  unsigned e = (uf >> 23) & 0xFF;
+
+  int E = e - 127;
+  frac = frac | (1 << 23); // implicit leading 1.frac
+  if (E < 0) {
+    return 0;
+  } else if (E >= 31) {
+    return 0x80000000u;
+  } else {
+    if (E < 23) {
+      frac >>= (23 - E);
+    } else {
+      frac <<= (E - 23);
+    }
+  }
+
+  if (sign) {
+    return ~frac + 1;
+  }
+  return frac;
+}
 /*
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
  *   (2.0 raised to the power x) for any 32-bit integer x.
