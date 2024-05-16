@@ -1,0 +1,3 @@
+b touch1
+b test
+b getbuf
