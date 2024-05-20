@@ -17,6 +17,7 @@ RUN apt-get update && \
         vim \
         python3 \
         python3-pip \
+        zsh \
         gdb-multiarch \
         qemu-system-misc \
         gcc-riscv64-linux-gnu \
@@ -36,12 +37,16 @@ ENV LANG=en_US.utf8 \
     LANGUAGE=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
-RUN usermod -s /bin/bash s081
-RUN chsh -s /bin/bash s081
-ENV SHELL=/bin/bash 
+RUN chsh -s $(which zsh)
+
+RUN usermod -s /bin/zsh s081
+RUN chsh -s /bin/zsh s081
+ENV SHELL=/bin/zsh 
 
 ENV PASSWORD=s081
 
 USER s081
+ENV PASSWORD=s081
+
 WORKDIR /home/s081/project
 
