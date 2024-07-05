@@ -72,15 +72,15 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N]) {
 
         // move A's lower left to B's upper right, column by column
         for (int col = 0; col < 4; ++col) {
-          int a00 = A[i + 4][j + col];
-          int a10 = A[i + 5][j + col];
-          int a20 = A[i + 6][j + col];
-          int a30 = A[i + 7][j + col];
-
           int b04 = B[j + col][i + 4];
           int b05 = B[j + col][i + 5];
           int b06 = B[j + col][i + 6];
           int b07 = B[j + col][i + 7];
+
+          int a00 = A[i + 4][j + col];
+          int a10 = A[i + 5][j + col];
+          int a20 = A[i + 6][j + col];
+          int a30 = A[i + 7][j + col];
 
           B[j + col][i + 4] = a00;
           B[j + col][i + 5] = a10;
@@ -103,6 +103,19 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N]) {
           B[j + 5][i + row] = a45;
           B[j + 6][i + row] = a46;
           B[j + 7][i + row] = a47;
+        }
+      }
+    }
+  } else if (M == 61 && N == 67) {
+    int i, j;
+
+    int sz = 16;
+    for (i = 0; i < N; i += sz) {
+      for (j = 0; j < M; j += sz) {
+        for (int k = i; k < N && k < i + sz; ++k) {
+          for (int l = j; l < M && l < j + sz; ++l) {
+            B[l][k] = A[k][l];
+          }
         }
       }
     }
