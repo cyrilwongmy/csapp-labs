@@ -387,7 +387,21 @@ void sigint_handler(int sig) {
  *     the user types ctrl-z at the keyboard. Catch it and suspend the
  *     foreground job by sending it a SIGTSTP.
  */
-void sigtstp_handler(int sig) { return; }
+void sigtstp_handler(int sig) { 
+  int prev_errno = errno;
+
+  sigset_t mask_all, prev;
+  Sigfillset(&mask_all);
+  Sigprocmask(SIG_BLOCK, &mask_all, &prev);
+
+  pid_t fg_pid = fgpid(jobs);
+  if (fg_pid != 0) {
+    Sigprocmask(SIG_SETMASK, &prev, NULL);
+    Kill(-fg_pid, sig);
+  }
+
+  errno = prev_errno;
+ }
 
 /*********************
  * End signal handlers
