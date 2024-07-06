@@ -298,6 +298,11 @@ int builtin_cmd(char **argv) {
     return 1;
   }
 
+  if (!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")) {
+    do_bgfg(argv);
+    return 1;
+  }
+
   if (!strcmp(argv[0], "&")) {
     return 1;
   }
@@ -308,7 +313,49 @@ int builtin_cmd(char **argv) {
 /*
  * do_bgfg - Execute the builtin bg and fg commands
  */
-void do_bgfg(char **argv) { return; }
+void do_bgfg(char **argv) {
+  sigset_t mask_all, mask_one, prev_one;
+  Sigfillset(&mask_all);
+  Sigemptyset(&mask_one);
+  Sigaddset(&mask_one, SIGCHLD);
+
+  Sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
+
+  char *cid = argv[1];
+  pid_t pid;
+  int jid;
+  struct job_t *job;
+  if (cid[0] == '%') {
+    // jid
+    jid = atoi(cid + 1);
+    job = getjobjid(jobs, jid);
+    pid = job->pid;
+  } else {
+    pid = atoi(cid);
+    job = getjobpid(jobs, pid);
+    jid = pid2jid(pid);
+  }
+
+  // send SIGCONT to the target pid or jid
+  Kill(pid, SIGCONT);
+
+  if (!strcmp(argv[0], "bg")) {
+    // run in background
+    Sigprocmask(SIG_BLOCK, &mask_all, NULL);
+    job->state = BG;
+    // Block SIGCHILD only to print safely
+    Sigprocmask(SIG_SETMASK, &mask_one, NULL);
+    printf("[%d] (%d) %s", jid, pid, job->cmdline);
+  } else if (!strcmp(argv[0], "fg")) {
+    // run in foreground
+    // block all signals
+    Sigprocmask(SIG_BLOCK, &mask_all, NULL);
+    job->state = FG;
+    Sigprocmask(SIG_SETMASK, &mask_one, NULL);
+    waitfg(pid);
+  }
+  Sigprocmask(SIG_SETMASK, &prev_one, NULL);
+}
 
 /*
  * waitfg - Block until process pid is no longer the foreground process
@@ -387,7 +434,7 @@ void sigint_handler(int sig) {
  *     the user types ctrl-z at the keyboard. Catch it and suspend the
  *     foreground job by sending it a SIGTSTP.
  */
-void sigtstp_handler(int sig) { 
+void sigtstp_handler(int sig) {
   int prev_errno = errno;
 
   sigset_t mask_all, prev;
@@ -401,7 +448,7 @@ void sigtstp_handler(int sig) {
   }
 
   errno = prev_errno;
- }
+}
 
 /*********************
  * End signal handlers
