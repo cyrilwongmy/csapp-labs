@@ -90,7 +90,6 @@ handler_t *Signal(int signum, handler_t *handler);
 pid_t Fork(void);
 void Execve(const char *filename, char *const argv[], char *const envp[]);
 pid_t Wait(int *status);
-pid_t Waitpid(pid_t pid, int *iptr, int options);
 void Kill(pid_t pid, int signum);
 void Pause();
 unsigned int Sleep(unsigned int secs);
@@ -294,6 +293,11 @@ int builtin_cmd(char **argv) {
     exit(0);
   }
 
+  if (!strcmp(argv[0], "jobs")) {
+    listjobs(jobs);
+    return 1;
+  }
+
   if (!strcmp(argv[0], "&")) {
     return 1;
   }
@@ -354,9 +358,6 @@ void sigchld_handler(int sig) {
     }
     Sigprocmask(SIG_SETMASK, &mask_prev, NULL);
   }
-  if (errno != ECHILD) {
-    printf("waitpid error");
-  }
   errno = pre_errno;
 }
 
@@ -365,7 +366,21 @@ void sigchld_handler(int sig) {
  *    user types ctrl-c at the keyboard.  Catch it and send it along
  *    to the foreground job.
  */
-void sigint_handler(int sig) { return; }
+void sigint_handler(int sig) {
+  int prev_errno = errno;
+
+  sigset_t mask_all, prev;
+  Sigfillset(&mask_all);
+  Sigprocmask(SIG_BLOCK, &mask_all, &prev);
+
+  pid_t fg_pid = fgpid(jobs);
+  if (fg_pid != 0) {
+    Sigprocmask(SIG_SETMASK, &prev, NULL);
+    Kill(-fg_pid, sig);
+  }
+
+  errno = prev_errno;
+}
 
 /*
  * sigtstp_handler - The kernel sends a SIGTSTP to the shell whenever
