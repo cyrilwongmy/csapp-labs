@@ -203,7 +203,10 @@ void eval(char *cmdline) {
     if ((pid = Fork()) == 0) {                   // child runs user job
       Sigprocmask(SIG_SETMASK, &prev_one, NULL); // Unblock SIGCHILD
       setpgid(0, 0);
-      Execve(argv[0], argv, environ);
+      // Execve(argv[0], argv, environ);
+      if (execve(argv[0], argv, environ) < 0) {
+        printf("%s: Command not found\n", argv[0]);
+      }
       exit(0);
     }
 
@@ -299,7 +302,11 @@ int builtin_cmd(char **argv) {
   }
 
   if (!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")) {
-    do_bgfg(argv);
+    if (argv[1] != NULL) {
+      do_bgfg(argv);
+    } else {
+      printf("%s command requires PID or %%jobid argument\n", argv[0]);
+    }
     return 1;
   }
 
@@ -329,11 +336,22 @@ void do_bgfg(char **argv) {
     // jid
     jid = atoi(cid + 1);
     job = getjobjid(jobs, jid);
+    if (job == NULL) {
+      printf("(%d): No such job\n", jid);
+      return;
+    }
     pid = job->pid;
-  } else {
+  } else if (isdigit(cid[0])) {
     pid = atoi(cid);
     job = getjobpid(jobs, pid);
+    if (job == NULL) {
+      printf("(%d): No such process\n", pid);
+      return;
+    }
     jid = pid2jid(pid);
+  } else {
+    printf("%s: argument must be a PID or %%jobid argument\n", argv[0]);
+    return;
   }
 
   // send SIGCONT to the target pid or jid
