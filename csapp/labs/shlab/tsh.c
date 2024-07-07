@@ -337,7 +337,7 @@ void do_bgfg(char **argv) {
   }
 
   // send SIGCONT to the target pid or jid
-  Kill(pid, SIGCONT);
+  Kill(-pid, SIGCONT);
 
   if (!strcmp(argv[0], "bg")) {
     // run in background
@@ -355,6 +355,7 @@ void do_bgfg(char **argv) {
     waitfg(pid);
   }
   Sigprocmask(SIG_SETMASK, &prev_one, NULL);
+  return;
 }
 
 /*
