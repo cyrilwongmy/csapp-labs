@@ -1,5 +1,6 @@
 /*
  * tsh - A tiny shell program with job control
+ * Yes, a boring lab
  *
  * <Put your name and login ID here>
  */
