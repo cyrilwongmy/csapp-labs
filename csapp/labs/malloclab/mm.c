@@ -83,7 +83,7 @@ Given block ptr bp, compute address of next and previous blocks */
 #define GET_NEXT(bp) (*((unsigned int **)((unsigned int *)(bp) + 1)))
 
 #define SET_PREV(bp, prev) (*((void **)(bp)) = prev)
-#define SET_NEXT(bp, next) (*((void **)(bp)) = next)
+#define SET_NEXT(bp, next) (*((void **)(bp) + 1) = next)
 
 #define GET_LIST_BY_INDEX(index) (unsigned int **)(size_class_listp + index)
 
@@ -117,11 +117,14 @@ static void printfList() {
     if (*list_ptr != NULL) {
       void *bp = *list_ptr;
       printf("[printfList] list %d traversal started: \n", i);
-      printf("[printfList] block address: %p, size: %u, free: %d\n", bp,
-             GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
-      for (; GET_NEXT(bp) != NULL; bp = GET_NEXT(bp)) {
-        printf("[printfList] block address: %p, size: %u, free: %d\n", bp,
-               GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+      // printf("[printfList] block address: %p, size: %u, free: %d\n", bp,
+      //        GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+      for (; bp != NULL; bp = GET_NEXT(bp)) {
+        printf("[printfList] block address: %p\n", bp);
+        // printf("[printfList] block address: %p, size: %u, free: %d\n", bp,
+        //        GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+        // printf("[printfList] block address: %p, size: %u\n", bp,
+        //        GET_SIZE(HDRP(bp)));
       }
       printf("[printfList] list %d traversal end\n", i);
     }
@@ -195,11 +198,13 @@ void *mm_malloc(size_t size) {
     asize = DSIZE * ((size + (3 * DSIZE) + (DSIZE - 1)) /
                      DSIZE); // line:vm:mm:sizeadjust3
 
+  printf("[mm_malloc] adjusted block size: asize: %lu\n", asize);
   /* Search the free list for a fit */
   if ((bp = find_fit(asize)) != NULL) { // line:vm:mm:findfitcall
     place(bp, asize);                   // line:vm:mm:findfitplace
     printf("[mm_malloc] find fit in the free list\n");
     printfList();
+    printf("[mm_malloc] end with block bp %p\n", bp);
     return bp;
   }
 
@@ -212,6 +217,7 @@ void *mm_malloc(size_t size) {
   printf("[mm_malloc] extend heap to %lu bytes\n", extendsize);
   place(bp, asize); // line:vm:mm:growheap3
   printfList();
+  printf("[mm_malloc] end with block bp %p\n", bp);
   return bp;
 }
 
@@ -220,13 +226,18 @@ void *mm_malloc(size_t size) {
  */
 void mm_free(void *bp) {
   /* $end mmfree */
-  if (bp == 0)
+  printf("\n[mm_free] is called with block %p\n", bp);
+  printfList();
+  if (bp == 0) {
+    printf("[mm_free] block is NULL\n");
     return;
+  }
 
   /* $begin mmfree */
   size_t size = GET_SIZE(HDRP(bp));
   /* $end mmfree */
   if (heap_listp == 0) {
+    printf("[mm_free] heap_listp is NULL\n");
     mm_init();
   }
   /* $begin mmfree */
@@ -234,6 +245,7 @@ void mm_free(void *bp) {
   PUT(HDRP(bp), PACK(size, 0));
   PUT(FTRP(bp), PACK(size, 0));
   coalesce(bp);
+  printfList();
 }
 
 /*
@@ -399,7 +411,7 @@ static void delete(void *bp) {
     printf("[delete] prev and next are both NULL\n");
     // only node in the list is bp
     unsigned int index = find_list(GET_SIZE(HDRP(bp)));
-    printf("[delete] delete block %p from list %d\n", bp, index);
+    printf("[delete] delete block %p with size %u from list %d\n", bp, GET_SIZE(HDRP(bp)), index);
     unsigned int **list_ptr = GET_LIST_BY_INDEX(index);
     *list_ptr = NULL;
   } else if (prev == NULL && next != NULL) {
@@ -425,30 +437,37 @@ static void insert(void *bp, size_t size) {
   unsigned int index = find_list(size);
 
   unsigned int **list_ptr = GET_LIST_BY_INDEX(index);
-  printf("[insert] insert block %p with size %zu into list %d\n", bp, size,
+  printf("[insert] begin to insert block %p with size %zu into list %d\n", bp, size,
          index);
 
   if (*list_ptr == NULL) {
     *list_ptr = bp;
     SET_NEXT(bp, NULL);
     SET_PREV(bp, NULL);
+    printf("[insert] insert block %p with size %zu into empty list %d\n", bp,
+           size, index);
+    printf("[insert] after update block %p, next: %p, prev: %p\n", bp, GET_NEXT(bp), GET_PREV(bp));
   } else {
     // insert into the head of the list
     unsigned int *head = *list_ptr;
     *list_ptr = bp;
     SET_NEXT(bp, head);
     SET_PREV(head, bp);
+    printf("[insert] insert block %p with size %zu into list %d\n", bp, size,
+           index);
   }
 }
 
 /* Find the index of the list */
 static unsigned int find_list(size_t size) {
   // Find the size class of asize belongs to
+  printf("[find_list] start to find list for size %zu\n", size);
   int index = -1;
   for (; index < 20 && size > 0; ++index) {
     size = size >> 1;
   }
 
+  printf("[find_list] find list index: %d\n", index);
   assert(index > -1);
   return index;
 }
@@ -481,20 +500,24 @@ static void *find_in_list(size_t size, unsigned int *list) {
 static void place(void *bp, size_t asize)
 /* $end mmplace-proto */
 {
+  printf("[place] is called with block %p, requested size %lu\n", bp, asize);
   size_t csize = GET_SIZE(HDRP(bp));
+  printf("[place] block csize %lu\n", csize);
 
   if ((csize - asize) >= (2 * DSIZE)) {
+    delete(bp);
     PUT(HDRP(bp), PACK(asize, 1));
     PUT(FTRP(bp), PACK(asize, 1));
-    delete (bp);
     bp = NEXT_BLKP(bp);
+    insert(bp, csize - asize);
     PUT(HDRP(bp), PACK(csize - asize, 0));
     PUT(FTRP(bp), PACK(csize - asize, 0));
-    insert(bp, csize - asize);
+    printf("[place] split block %p with other block size %lu\n", bp, csize - asize);
   } else {
+    delete(bp);
     PUT(HDRP(bp), PACK(csize, 1));
     PUT(FTRP(bp), PACK(csize, 1));
-    delete (bp);
+    printf("[place] no split\n");
   }
 }
 /* $end mmplace */
