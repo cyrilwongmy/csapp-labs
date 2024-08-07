@@ -35,6 +35,16 @@ team_t team = {
     /* Second member's email address (leave blank if none) */
     ""};
 
+// #define DEBUG_LOG 1
+
+int enable_debug = 0;
+
+#ifdef DEBUG_LOG
+#define LOG_DEBUG(...) printf(__VA_ARGS__)
+#else
+#define LOG_DEBUG(...)
+#endif
+
 /* $begin mallocmacros */
 /* single word (4) or double word (8) alignment */
 #define ALIGNMENT 8
@@ -108,42 +118,46 @@ static unsigned int find_list(size_t size); /* Find the index of the list */
 static void *find_in_list(size_t size,
                           unsigned int *list); /* Find the index of the list */
 
-static void printfList() {
-  printf("[printfList] is called\n");
+static void LOG_DEBUGList() {
+  if (enable_debug == 0) {
+    return;
+  }
+  LOG_DEBUG("[LOG_DEBUGList] is called\n");
   for (int i = 0; i < CLASS_SIZE; ++i) {
     unsigned int **list_ptr = GET_LIST_BY_INDEX(i);
-    printf("[printfList] list %d: head = %p\n", i, *list_ptr);
+    LOG_DEBUG("[LOG_DEBUGList] list %d: head = %p\n", i, *list_ptr);
     // go through the list
     if (*list_ptr != NULL) {
       void *bp = *list_ptr;
-      printf("[printfList] list %d traversal started: \n", i);
-      // printf("[printfList] block address: %p, size: %u, free: %d\n", bp,
+      LOG_DEBUG("[LOG_DEBUGList] list %d traversal started: \n", i);
+      // LOG_DEBUG("[LOG_DEBUGList] block address: %p, size: %u, free: %d\n",
+      // bp,
       //        GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
       for (; bp != NULL; bp = GET_NEXT(bp)) {
-        printf("[printfList] block address: %p\n", bp);
-        // printf("[printfList] block address: %p, size: %u, free: %d\n", bp,
-        //        GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
-        // printf("[printfList] block address: %p, size: %u\n", bp,
+        // LOG_DEBUG("[LOG_DEBUGList] block address: %p\n", bp);
+        LOG_DEBUG("[LOG_DEBUGList] block address: %p, size: %u, free: %d\n", bp,
+                  GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+        // LOG_DEBUG("[LOG_DEBUGList] block address: %p, size: %u\n", bp,
         //        GET_SIZE(HDRP(bp)));
       }
-      printf("[printfList] list %d traversal end\n", i);
+      LOG_DEBUG("[LOG_DEBUGList] list %d traversal end\n", i);
     }
   }
-  printf("[printfList] end\n");
+  LOG_DEBUG("[LOG_DEBUGList] end\n");
 }
 
 /*
  * mm_init - initialize the malloc package.
  */
 int mm_init(void) {
-  printf("\nmm_init is called\n");
+  LOG_DEBUG("\nmm_init is called\n");
   if ((heap_listp = mem_sbrk((CLASS_SIZE + 4) * WSIZE)) == (void *)-1) {
     return -1;
   }
-  printf("address of heap_listp: %p\n", heap_listp);
+  LOG_DEBUG("address of heap_listp: %p\n", heap_listp);
 
   size_class_listp = (unsigned int *)heap_listp;
-  printf("address of size_class_listp: %p\n", size_class_listp);
+  LOG_DEBUG("address of size_class_listp: %p\n", size_class_listp);
   for (int i = 0; i < CLASS_SIZE; ++i) {
     PUT(heap_listp + i * WSIZE, 0);
   }
@@ -152,19 +166,20 @@ int mm_init(void) {
 
   PUT(heap_listp, 0);                          /* Alignment padding */
   PUT(heap_listp + 1 * WSIZE, PACK(DSIZE, 1)); /* Prologue header */
-  printf("[mm_init] prologue header address: %p\n", heap_listp + 1 * WSIZE);
+  LOG_DEBUG("[mm_init] prologue header address: %p\n", heap_listp + 1 * WSIZE);
   PUT(heap_listp + 2 * WSIZE, PACK(DSIZE, 1)); /* Prologue footer */
-  printf("[mm_init] prologue footer address: %p\n", heap_listp + 2 * WSIZE);
-  PUT(heap_listp + 3 * WSIZE, PACK(0, 1));     /* Epilogue header */
-  printf("[mm_init] epilogue header address: %p\n", heap_listp + 3 * WSIZE);
+  LOG_DEBUG("[mm_init] prologue footer address: %p\n", heap_listp + 2 * WSIZE);
+  PUT(heap_listp + 3 * WSIZE, PACK(0, 1)); /* Epilogue header */
+  LOG_DEBUG("[mm_init] epilogue header address: %p\n", heap_listp + 3 * WSIZE);
   heap_listp += DSIZE;
-  printf("address of heap_listp after init: %p\n", heap_listp);
+  LOG_DEBUG("address of heap_listp after init: %p\n", heap_listp);
 
   /* Extend the empty heap with a free block of CHUNKSIZE bytes */
   if (extend_heap(CHUNKSIZE / WSIZE) == NULL) {
     return -1;
   }
-  printfList();
+  LOG_DEBUGList();
+  LOG_DEBUG("[mm_init] end\n");
   return 0;
 }
 
@@ -173,8 +188,8 @@ int mm_init(void) {
  *     Always allocate a block whose size is a multiple of the alignment.
  */
 void *mm_malloc(size_t size) {
-  printf("\n[mm_malloc] is called with size: %lu\n", size);
-  printfList();
+  LOG_DEBUG("\n[mm_malloc] is called with size: %lu\n", size);
+  LOG_DEBUGList();
   size_t asize;      /* Adjusted block size */
   size_t extendsize; /* Amount to extend heap if no fit */
   char *bp;
@@ -198,26 +213,26 @@ void *mm_malloc(size_t size) {
     asize = DSIZE * ((size + (3 * DSIZE) + (DSIZE - 1)) /
                      DSIZE); // line:vm:mm:sizeadjust3
 
-  printf("[mm_malloc] adjusted block size: asize: %lu\n", asize);
+  LOG_DEBUG("[mm_malloc] adjusted block size: asize: %lu\n", asize);
   /* Search the free list for a fit */
   if ((bp = find_fit(asize)) != NULL) { // line:vm:mm:findfitcall
     place(bp, asize);                   // line:vm:mm:findfitplace
-    printf("[mm_malloc] find fit in the free list\n");
-    printfList();
-    printf("[mm_malloc] end with block bp %p\n", bp);
+    LOG_DEBUG("[mm_malloc] find fit in the free list\n");
+    LOG_DEBUGList();
+    LOG_DEBUG("[mm_malloc] end with block bp %p\n", bp);
     return bp;
   }
 
   /* No fit found. Get more memory and place the block */
   extendsize = MAX(asize, CHUNKSIZE); // line:vm:mm:growheap1
   if ((bp = extend_heap(extendsize / WSIZE)) == NULL) {
-    printf("[mm_malloc] extend heap failed\n");
+    LOG_DEBUG("[mm_malloc] extend heap failed\n");
     return NULL; // line:vm:mm:growheap2
   }
-  printf("[mm_malloc] extend heap to %lu bytes\n", extendsize);
+  LOG_DEBUG("[mm_malloc] extend heap to %lu bytes\n", extendsize);
   place(bp, asize); // line:vm:mm:growheap3
-  printfList();
-  printf("[mm_malloc] end with block bp %p\n", bp);
+  LOG_DEBUGList();
+  LOG_DEBUG("[mm_malloc] end with block bp %p\n", bp);
   return bp;
 }
 
@@ -226,10 +241,10 @@ void *mm_malloc(size_t size) {
  */
 void mm_free(void *bp) {
   /* $end mmfree */
-  printf("\n[mm_free] is called with block %p\n", bp);
-  printfList();
+  LOG_DEBUG("\n[mm_free] is called with block %p\n", bp);
+  LOG_DEBUGList();
   if (bp == 0) {
-    printf("[mm_free] block is NULL\n");
+    LOG_DEBUG("[mm_free] block is NULL\n");
     return;
   }
 
@@ -237,7 +252,7 @@ void mm_free(void *bp) {
   size_t size = GET_SIZE(HDRP(bp));
   /* $end mmfree */
   if (heap_listp == 0) {
-    printf("[mm_free] heap_listp is NULL\n");
+    LOG_DEBUG("[mm_free] heap_listp is NULL\n");
     mm_init();
   }
   /* $begin mmfree */
@@ -245,31 +260,38 @@ void mm_free(void *bp) {
   PUT(HDRP(bp), PACK(size, 0));
   PUT(FTRP(bp), PACK(size, 0));
   coalesce(bp);
-  printfList();
+  LOG_DEBUGList();
+  LOG_DEBUG("[mm_free] end\n");
 }
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *ptr, size_t size) {
-  size_t oldsize;
+  size_t oldsize = GET_SIZE(HDRP(ptr));
+  LOG_DEBUG("\n[mm_realloc] is called with block %p old size %lu, new size %lu",
+            ptr, oldsize, size);
   void *newptr;
 
   /* If size == 0 then this is just free, and we return NULL. */
   if (size == 0) {
+    LOG_DEBUG("[mm_realloc] size is 0, free the block\n");
     mm_free(ptr);
     return 0;
   }
 
   /* If oldptr is NULL, then this is just malloc. */
   if (ptr == NULL) {
+    LOG_DEBUG("[mm_realloc] ptr is NULL, malloc and return\n");
     return mm_malloc(size);
   }
 
+  // extend the block
   newptr = mm_malloc(size);
 
   /* If realloc() fails the original block is left untouched  */
   if (!newptr) {
+    LOG_DEBUG("[mm_realloc] mm_malloc failed, return NULL\n");
     return 0;
   }
 
@@ -282,6 +304,7 @@ void *mm_realloc(void *ptr, size_t size) {
   /* Free the old block. */
   mm_free(ptr);
 
+  LOG_DEBUG("[mm_realloc] end with new block %p\n", newptr);
   return newptr;
 }
 
@@ -293,6 +316,7 @@ void *mm_realloc(void *ptr, size_t size) {
 static void *find_fit(size_t asize)
 /* $end mmfirstfit-proto */
 {
+  LOG_DEBUG("[find_fit] is called with size: %lu\n", asize);
   /* $end mmfirstfit */
 
   /* $begin mmfirstfit */
@@ -303,16 +327,17 @@ static void *find_fit(size_t asize)
   // search through all lists
   // search until index >= 20, no fit return NULL
   for (; index < 20; ++index) {
-    printf("[find_fit] search in list %d\n", index);
+    LOG_DEBUG("[find_fit] search in list %d\n", index);
     // search within the list
     bp = find_in_list(asize, *GET_LIST_BY_INDEX(index));
     if (bp) {
-      printf("[find_fit] find fit in list returns %p\n", bp);
+      LOG_DEBUG("[find_fit] find fit in list returns %p\n", bp);
       return bp;
     }
-    printf("[find_fit] find_in_list returns %p\n", bp);
+    LOG_DEBUG("[find_fit] find_in_list returns %p\n", bp);
   }
 
+  LOG_DEBUG("[find_fit] no fit\n");
   return NULL; /* No fit */
 }
 /* $end mmfirstfit */
@@ -322,7 +347,7 @@ static void *find_fit(size_t asize)
  */
 /* $begin mmextendheap */
 static void *extend_heap(size_t words) {
-  printf("[extend_heap] is called with words: %lu\n", words);
+  LOG_DEBUG("[extend_heap] is called with words: %lu\n", words);
   char *bp;
   size_t size;
 
@@ -330,7 +355,7 @@ static void *extend_heap(size_t words) {
   size = (words % 2) ? (words + 1) * WSIZE
                      : words * WSIZE; // line:vm:mm:beginextend
   if ((long)(bp = mem_sbrk(size)) == -1) {
-    printf("[extend_heap] mem_sbrk failed\n");
+    LOG_DEBUG("[extend_heap] mem_sbrk failed\n");
     return NULL; // line:vm:mm:endextend
   }
 
@@ -343,7 +368,7 @@ static void *extend_heap(size_t words) {
   PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
   SET_NEXT(bp, NULL);
   SET_PREV(bp, NULL);
-  printf("[extend_heap] new block %p with size %zu\n", bp, size);
+  LOG_DEBUG("[extend_heap] new block %p with size %zu\n", bp, size);
 
   /* Coalesce if the previous block was free */
   return coalesce(bp); // line:vm:mm:returnblock
@@ -355,35 +380,32 @@ static void *extend_heap(size_t words) {
  */
 /* $begin mmfree */
 static void *coalesce(void *bp) {
-  printf("[coalesce] is called with block %p\n", bp);
+  LOG_DEBUG("[coalesce] is called with block %p\n", bp);
   size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
   size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
   size_t size = GET_SIZE(HDRP(bp));
-  printf("[coalesce] prev_alloc: %zu, prev_size: %u, prev_addr: %p\n",
-         prev_alloc, GET_SIZE(FTRP(PREV_BLKP(bp))), PREV_BLKP(bp));
-  printf("[coalesce] next_alloc: %zu, next_size: %u, next_addr: %p\n",
-         next_alloc, GET_SIZE(HDRP(NEXT_BLKP(bp))), NEXT_BLKP(bp));
+  LOG_DEBUG("[coalesce] prev_alloc: %zu, prev_size: %u, prev_addr: %p\n",
+            prev_alloc, GET_SIZE(FTRP(PREV_BLKP(bp))), PREV_BLKP(bp));
+  LOG_DEBUG("[coalesce] next_alloc: %zu, next_size: %u, next_addr: %p\n",
+            next_alloc, GET_SIZE(HDRP(NEXT_BLKP(bp))), NEXT_BLKP(bp));
 
   if (prev_alloc && next_alloc) { /* Case 1 */
-    printf("[coalesce] case 1\n");
-  }
-  else if (prev_alloc && !next_alloc) { /* Case 2 */
-    printf("[coalesce] case 2\n");
+    LOG_DEBUG("[coalesce] case 1\n");
+  } else if (prev_alloc && !next_alloc) { /* Case 2 */
+    LOG_DEBUG("[coalesce] case 2\n");
     delete (NEXT_BLKP(bp));
     size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
-  }
-  else if (!prev_alloc && next_alloc) { /* Case 3 */
-    printf("[coalesce] case 3\n");
+  } else if (!prev_alloc && next_alloc) { /* Case 3 */
+    LOG_DEBUG("[coalesce] case 3\n");
     delete (PREV_BLKP(bp));
     size += GET_SIZE(HDRP(PREV_BLKP(bp)));
     PUT(FTRP(bp), PACK(size, 0));
     PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
     bp = PREV_BLKP(bp);
-  }
-  else { /* Case 4 */
-    printf("[coalesce] case 4\n");
+  } else { /* Case 4 */
+    LOG_DEBUG("[coalesce] case 4\n");
     delete (NEXT_BLKP(bp));
     delete (PREV_BLKP(bp));
     size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
@@ -398,33 +420,34 @@ static void *coalesce(void *bp) {
 /* $end mmfree */
 
 static void delete(void *bp) {
-  printf("[delete] start to delete block %p\n", bp);
+  LOG_DEBUG("[delete] start to delete block %p\n", bp);
   // get its prev and next block's address
   void *prev = GET_PREV(bp);
   void *next = GET_NEXT(bp);
-  printf("[delete] prev address is %p\n", prev);
-  printf("[delete] next address is %p\n", next);
+  LOG_DEBUG("[delete] prev address is %p\n", prev);
+  LOG_DEBUG("[delete] next address is %p\n", next);
 
   // handle when prev and next is NULL and also maintain the ptr in size class
   // list
   if (prev == NULL && next == NULL) {
-    printf("[delete] prev and next are both NULL\n");
+    LOG_DEBUG("[delete] prev and next are both NULL\n");
     // only node in the list is bp
     unsigned int index = find_list(GET_SIZE(HDRP(bp)));
-    printf("[delete] delete block %p with size %u from list %d\n", bp, GET_SIZE(HDRP(bp)), index);
+    LOG_DEBUG("[delete] delete block %p with size %u from list %d\n", bp,
+              GET_SIZE(HDRP(bp)), index);
     unsigned int **list_ptr = GET_LIST_BY_INDEX(index);
     *list_ptr = NULL;
   } else if (prev == NULL && next != NULL) {
-    printf("[delete] prev is NULL\n");
+    LOG_DEBUG("[delete] prev is NULL\n");
     unsigned int index = find_list(GET_SIZE(HDRP(bp)));
     unsigned int **list_ptr = GET_LIST_BY_INDEX(index);
     *list_ptr = (unsigned int *)(next);
     SET_PREV(next, NULL);
   } else if (prev != NULL && next == NULL) {
-    printf("[delete] next is NULL\n");
+    LOG_DEBUG("[delete] next is NULL\n");
     SET_NEXT(prev, NULL);
   } else {
-    printf("[delete] prev and next are both not NULL\n");
+    LOG_DEBUG("[delete] prev and next are both not NULL\n");
     SET_NEXT(prev, next);
     SET_PREV(next, prev);
   }
@@ -437,52 +460,55 @@ static void insert(void *bp, size_t size) {
   unsigned int index = find_list(size);
 
   unsigned int **list_ptr = GET_LIST_BY_INDEX(index);
-  printf("[insert] begin to insert block %p with size %zu into list %d\n", bp, size,
-         index);
+  LOG_DEBUG("[insert] begin to insert block %p with size %zu into list %d\n",
+            bp, size, index);
 
   if (*list_ptr == NULL) {
     *list_ptr = bp;
     SET_NEXT(bp, NULL);
     SET_PREV(bp, NULL);
-    printf("[insert] insert block %p with size %zu into empty list %d\n", bp,
-           size, index);
-    printf("[insert] after update block %p, next: %p, prev: %p\n", bp, GET_NEXT(bp), GET_PREV(bp));
+    LOG_DEBUG("[insert] insert block %p with size %zu into empty list %d\n", bp,
+              size, index);
+    LOG_DEBUG("[insert] after update block %p, next: %p, prev: %p\n", bp,
+              GET_NEXT(bp), GET_PREV(bp));
   } else {
     // insert into the head of the list
     unsigned int *head = *list_ptr;
     *list_ptr = bp;
+    SET_PREV(bp, NULL);
     SET_NEXT(bp, head);
     SET_PREV(head, bp);
-    printf("[insert] insert block %p with size %zu into list %d\n", bp, size,
-           index);
+    LOG_DEBUG("[insert] insert block %p with size %zu into list %d\n", bp, size,
+              index);
   }
 }
 
 /* Find the index of the list */
 static unsigned int find_list(size_t size) {
   // Find the size class of asize belongs to
-  printf("[find_list] start to find list for size %zu\n", size);
+  LOG_DEBUG("[find_list] start to find list for size %zu\n", size);
   int index = -1;
-  for (; index < 20 && size > 0; ++index) {
+  for (; index < 19 && size > 0; ++index) {
     size = size >> 1;
   }
 
-  printf("[find_list] find list index: %d\n", index);
+  LOG_DEBUG("[find_list] find list index: %d\n", index);
   assert(index > -1);
   return index;
 }
 
 /* Find the index of the list */
 static void *find_in_list(size_t size, unsigned int *list) {
-  printf("[find_in_list] start to find in list %p for size %zu\n", list, size);
+  LOG_DEBUG("[find_in_list] start to find in list %p for size %zu\n", list,
+            size);
   if (list == 0) {
-    printf("[find_in_list] list %p is empty return imm\n", list);
+    LOG_DEBUG("[find_in_list] list %p is empty return imm\n", list);
     return NULL;
   }
 
   for (; list != NULL; list = GET_NEXT(list)) {
-    printf("[find_in_list] block address: %p, size: %u\n", list,
-           GET_SIZE(HDRP(list)));
+    LOG_DEBUG("[find_in_list] block address: %p, size: %u\n", list,
+              GET_SIZE(HDRP(list)));
     if (GET_SIZE(HDRP(list)) >= size) {
       return list;
     }
@@ -500,24 +526,25 @@ static void *find_in_list(size_t size, unsigned int *list) {
 static void place(void *bp, size_t asize)
 /* $end mmplace-proto */
 {
-  printf("[place] is called with block %p, requested size %lu\n", bp, asize);
+  LOG_DEBUG("[place] is called with block %p, requested size %lu\n", bp, asize);
   size_t csize = GET_SIZE(HDRP(bp));
-  printf("[place] block csize %lu\n", csize);
+  LOG_DEBUG("[place] block csize %lu\n", csize);
 
   if ((csize - asize) >= (2 * DSIZE)) {
-    delete(bp);
+    delete (bp);
     PUT(HDRP(bp), PACK(asize, 1));
     PUT(FTRP(bp), PACK(asize, 1));
     bp = NEXT_BLKP(bp);
     insert(bp, csize - asize);
     PUT(HDRP(bp), PACK(csize - asize, 0));
     PUT(FTRP(bp), PACK(csize - asize, 0));
-    printf("[place] split block %p with other block size %lu\n", bp, csize - asize);
+    LOG_DEBUG("[place] split block %p with other block size %lu\n", bp,
+              csize - asize);
   } else {
-    delete(bp);
+    delete (bp);
     PUT(HDRP(bp), PACK(csize, 1));
     PUT(FTRP(bp), PACK(csize, 1));
-    printf("[place] no split\n");
+    LOG_DEBUG("[place] no split\n");
   }
 }
 /* $end mmplace */
