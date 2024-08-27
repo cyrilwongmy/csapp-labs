@@ -8,6 +8,27 @@
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
+#define NTHREADS 4
+#define SBUFSIZE 16
+
+/* $begin sbuft */
+typedef struct {
+  int *buf;    /* Buffer array */
+  int n;       /* Maximum number of slots */
+  int front;   /* buf[(front+1)%n] is first item */
+  int rear;    /* buf[rear%n] is last item */
+  sem_t mutex; /* Protects accesses to buf */
+  sem_t slots; /* Counts available slots */
+  sem_t items; /* Counts available items */
+} sbuf_t;
+/* $end sbuft */
+
+void sbuf_init(sbuf_t *sp, int n);
+void sbuf_deinit(sbuf_t *sp);
+void sbuf_insert(sbuf_t *sp, int item);
+int sbuf_remove(sbuf_t *sp);
+
+sbuf_t sbuf; /* Shared buffer of connected descriptors */
 
 /* You won't lose style points for including this long line in your code */
 static const char *DEFAULT_HOST_HDR = "Host: www.cmu.edu\r\n";
@@ -48,9 +69,13 @@ char *get_relative_uri(const char *uri);
 
 http_header *get_http_header_from_input(rio_t *rio);
 
+void *thread(void *vargp);
+
 int main(int argc, char **argv) {
-  int listenfd, connfd, clientlen;
+  int listenfd, connfd;
+  socklen_t clientlen;
   struct sockaddr_in clientaddr;
+  pthread_t tid;
 
   /* Check command line args */
   if (argc != 2) {
@@ -59,12 +84,14 @@ int main(int argc, char **argv) {
   }
 
   listenfd = Open_listenfd(argv[1]);
+  sbuf_init(&sbuf, SBUFSIZE);
+  for (int i = 0; i < NTHREADS; i++) /* Create worker threads */
+    Pthread_create(&tid, NULL, thread, NULL);
+
   while (1) {
     clientlen = sizeof(clientaddr);
-    connfd = Accept(listenfd, (SA *)&clientaddr,
-                    &clientlen); // line:netp:tiny:accept
-    doit(connfd);                // line:netp:tiny:doit
-    Close(connfd);               // line:netp:tiny:close
+    connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+    sbuf_insert(&sbuf, connfd);
   }
 }
 
@@ -94,10 +121,6 @@ void doit(int fd) {
 
   char *relative_uri = get_relative_uri(uri);
   printf("[doit] relative_uri: %s\n", relative_uri);
-  // TODO: extract the relative uri from the uri and pass to actual web server
-  // override uri to "/home.html"
-  // strncpy(uri, "/home.html", strlen("/home.html"));
-  // uri[strlen("/home.html")] = '\0';
 
   // read header from clients
   // GET request should only have headers
@@ -123,13 +146,17 @@ void doit(int fd) {
 
   /* Send request headers to the actual server */
   char proxy_req_hdr[MAXBUF];
-  sprintf(proxy_req_hdr, "%s %s %s\r\n", method, relative_uri, HTTP_VERSION);
-  sprintf(proxy_req_hdr, "%s%s", proxy_req_hdr, http_req_hdr->host);
-  sprintf(proxy_req_hdr, "%s%s", proxy_req_hdr, http_req_hdr->user_agent);
-  sprintf(proxy_req_hdr, "%s%s", proxy_req_hdr, http_req_hdr->connection);
-  sprintf(proxy_req_hdr, "%s%s", proxy_req_hdr, http_req_hdr->proxy_connection);
+  // fill with all '\0'
+  memset(proxy_req_hdr, '0', MAXBUF);
   if (http_req_hdr->other_hdr[0] != '\0') {
-    sprintf(proxy_req_hdr, "%s%s", proxy_req_hdr, http_req_hdr->other_hdr);
+    sprintf(proxy_req_hdr, "%s %s %s\r\n%s%s%s%s%s\r\n", method, relative_uri,
+            HTTP_VERSION, http_req_hdr->host, http_req_hdr->user_agent,
+            http_req_hdr->connection, http_req_hdr->proxy_connection,
+            http_req_hdr->other_hdr);
+  } else {
+    sprintf(proxy_req_hdr, "%s %s %s\r\n%s%s%s%s\r\n", method, relative_uri,
+            HTTP_VERSION, http_req_hdr->host, http_req_hdr->user_agent,
+            http_req_hdr->connection, http_req_hdr->proxy_connection);
   }
 
   // print proxy_req_hdr
@@ -146,24 +173,6 @@ void doit(int fd) {
   free(hostname);
   free(port);
   free(relative_uri);
-
-  // if (is_static) { /* Serve static content */
-  //   if (!(S_ISREG(sbuf.st_mode)) ||
-  //       !(S_IRUSR & sbuf.st_mode)) { // line:netp:doit:readable
-  //     clienterror(fd, filename, "403", "Forbidden",
-  //                 "Tiny couldn't read the file");
-  //     return;
-  //   }
-  //   serve_static(fd, filename, sbuf.st_size); // line:netp:doit:servestatic
-  // } else {                                    /* Serve dynamic content */
-  //   if (!(S_ISREG(sbuf.st_mode)) ||
-  //       !(S_IXUSR & sbuf.st_mode)) { // line:netp:doit:executable
-  //     clienterror(fd, filename, "403", "Forbidden",
-  //                 "Tiny couldn't run the CGI program");
-  //     return;
-  //   }
-  //   serve_dynamic(fd, filename, cgiargs); // line:netp:doit:servedynamic
-  // }
 }
 /* $end doit */
 
@@ -285,15 +294,11 @@ void serve_dynamic(int fd, char *filename, char *cgiargs) {
 /* $begin clienterror */
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg,
                  char *longmsg) {
-  char buf[MAXLINE], body[MAXBUF];
+  char buf[MAXBUF], body[MAXBUF];
 
   /* Build the HTTP response body */
   sprintf(body, "<html><title>Tiny Error</title>");
-  sprintf(body,
-          "%s<body bgcolor="
-          "ffffff"
-          ">\r\n",
-          body);
+  sprintf(body, "%s<body bgcolor=ffffff>\r\n", body);
   sprintf(body, "%s%s: %s\r\n", body, errnum, shortmsg);
   sprintf(body, "%s<p>%s: %s\r\n", body, longmsg, cause);
   sprintf(body, "%s<hr><em>The Tiny Web server</em>\r\n", body);
@@ -345,7 +350,7 @@ void set_http_header(http_header *headers, const char *key, const char *value) {
   if (strcasecmp(key, "Host") == 0) {
     // concatenate the host header with the value and deep copy it
     char *host = (char *)malloc(strlen("Host: ") + strlen(value) + 3);
-    sprintf(host, "Host: %s\r\n", value);
+    sprintf(host, "Host: %s", value);
     headers->host = host;
   } else if (strcasecmp(key, "User-Agent") == 0) {
     // skip
@@ -354,7 +359,7 @@ void set_http_header(http_header *headers, const char *key, const char *value) {
   } else if (strcasecmp(key, "Proxy-Connection") == 0) {
     // skip
   } else {
-    sprintf(headers->other_hdr, "%s%s: %s\r\n", headers->other_hdr, key, value);
+    sprintf(headers->other_hdr, "%s%s: %s", headers->other_hdr, key, value);
   }
 }
 
@@ -378,6 +383,7 @@ int parse_header(char *header_line, http_header *http_headers) {
     char *value = strdup(value_start);
     printf("[parse_header] key: %s, value: %s\n", key, value);
     set_http_header(http_headers, key, value);
+    return 0;
   } else {
     // header format error
     return -1;
@@ -386,7 +392,8 @@ int parse_header(char *header_line, http_header *http_headers) {
 
 // Function to free the HttpHeaders struct
 void free_http_headers(http_header *headers) {
-  if (headers->host && strncpy(headers->host, DEFAULT_HOST_HDR, strlen(DEFAULT_HOST_HDR)) != 0) {
+  if (headers->host &&
+      strncpy(headers->host, DEFAULT_HOST_HDR, strlen(DEFAULT_HOST_HDR)) != 0) {
     free(headers->host);
   }
   if (headers->other_hdr) {
@@ -493,4 +500,55 @@ char *get_relative_uri(const char *uri) {
   relative_uri = strchr(relative_uri, '/');
 
   return strdup(relative_uri);
+}
+
+/* Create an empty, bounded, shared FIFO buffer with n slots */
+/* $begin sbuf_init */
+void sbuf_init(sbuf_t *sp, int n) {
+  sp->buf = Calloc(n, sizeof(int));
+  sp->n = n;                  /* Buffer holds max of n items */
+  sp->front = sp->rear = 0;   /* Empty buffer iff front == rear */
+  Sem_init(&sp->mutex, 0, 1); /* Binary semaphore for locking */
+  Sem_init(&sp->slots, 0, n); /* Initially, buf has n empty slots */
+  Sem_init(&sp->items, 0, 0); /* Initially, buf has zero data items */
+}
+/* $end sbuf_init */
+
+/* Clean up buffer sp */
+/* $begin sbuf_deinit */
+void sbuf_deinit(sbuf_t *sp) { Free(sp->buf); }
+/* $end sbuf_deinit */
+
+/* Insert item onto the rear of shared buffer sp */
+/* $begin sbuf_insert */
+void sbuf_insert(sbuf_t *sp, int item) {
+  P(&sp->slots);                          /* Wait for available slot */
+  P(&sp->mutex);                          /* Lock the buffer */
+  sp->buf[(++sp->rear) % (sp->n)] = item; /* Insert the item */
+  V(&sp->mutex);                          /* Unlock the buffer */
+  V(&sp->items);                          /* Announce available item */
+}
+/* $end sbuf_insert */
+
+/* Remove and return the first item from buffer sp */
+/* $begin sbuf_remove */
+int sbuf_remove(sbuf_t *sp) {
+  int item;
+  P(&sp->items);                           /* Wait for available item */
+  P(&sp->mutex);                           /* Lock the buffer */
+  item = sp->buf[(++sp->front) % (sp->n)]; /* Remove the item */
+  V(&sp->mutex);                           /* Unlock the buffer */
+  V(&sp->slots);                           /* Announce available slot */
+  return item;
+}
+/* $end sbuf_remove */
+/* $end sbufc */
+
+void *thread(void *vargp) {
+  Pthread_detach(pthread_self());
+  while (1) {
+    int connfd = sbuf_remove(&sbuf); /* Remove connfd from buffer */
+    doit(connfd);                    /* Service client */
+    Close(connfd);
+  }
 }
