@@ -1,4 +1,5 @@
 #include "csapp.h"
+#include "tiny/csapp.h"
 #include <linux/limits.h>
 #include <semaphore.h>
 #include <stdio.h>
@@ -153,14 +154,15 @@ void doit(int fd) {
   char *relative_uri = get_relative_uri(uri);
   printf("[doit] relative_uri: %s\n", relative_uri);
 
-  char *cache_data = get_from_cache(relative_uri);
-  if (cache_data != NULL) {
-    printf("[doit]: find cache data return right now");
-    Rio_writen(fd, cache_data, strlen(cache_data));
+  char *cache_response = get_from_cache(relative_uri);
+  if (cache_response != NULL) {
+    printf("[doit]: find cache response size %ld\n for url %s",
+           strlen(cache_response), relative_uri);
+    Rio_writen(fd, cache_response, strlen(cache_response));
     free(relative_uri);
     return;
   }
-    printf("[doit]: didn't find cache data and then query tiny server");
+  printf("[doit]: didn't find cache data and then query tiny server");
 
   // read header from clients
   // GET request should only have headers
@@ -179,6 +181,11 @@ void doit(int fd) {
   char *port = get_port_from_host(http_req_hdr->host);
   printf("[doit] port: %s\n", port);
   int clientfd = open_clientfd(hostname, port);
+  if (clientfd < 0) {
+    printf("[doit] failed to connect to actual server hostname: %s, port: %s\n",
+           hostname, port);
+    return;
+  }
   rio_t rio_to_server;
   Rio_readinitb(&rio_to_server, clientfd);
   printf("[doit] connected to actual server hostname: %s, port: %s\n", hostname,
@@ -203,27 +210,29 @@ void doit(int fd) {
   printf("[doit] proxy_req_hdr: %s\n", proxy_req_hdr);
   Rio_writen(clientfd, proxy_req_hdr, strlen(proxy_req_hdr));
 
-  char *response_line = Malloc(MAXLINE);
+  char response_line[MAXLINE];
+  char response_body[MAX_OBJECT_SIZE];
   int response_size = 0;
   int cnt = 0;
   printf("[doit] start to read response from tiny server");
   while ((cnt = Rio_readlineb(&rio_to_server, response_line, MAXLINE)) != 0) {
     response_size += cnt;
     printf("[doit] response_line from tiny server: %s", response_line);
+    if (response_size <= MAX_OBJECT_SIZE) {
+      strcat(response_body, response_line);
+    }
     Rio_writen(fd, response_line, cnt);
   }
-  printf("[doit] finish reading response from tiny server");
+  printf("[doit] finish reading response size: %d\n", response_size);
 
   if (response_size <= MAX_OBJECT_SIZE) {
-    add_to_cache(relative_uri, response_line);
-  } else {
-    free(relative_uri);
-    free(response_line);
-  }
+    add_to_cache(relative_uri, response_body);
+  } 
 
   Close(clientfd);
   free(hostname);
   free(port);
+  free(relative_uri);
 }
 /* $end doit */
 
@@ -612,8 +621,8 @@ void init_cache(void) {
 
   for (int i = 0; i < MAX_CACHE_NUM; ++i) {
     cache->blocks[i] = Malloc(sizeof(struct Block));
-    cache->blocks[i]->url = NULL;
-    cache->blocks[i]->data = NULL;
+    cache->blocks[i]->url = Malloc(MAXLINE);
+    cache->blocks[i]->data = Malloc(MAX_OBJECT_SIZE);
     cache->blocks[i]->timestamp = 0;
     cache->blocks[i]->is_empty = 1;
   }
@@ -621,71 +630,85 @@ void init_cache(void) {
 
 int add_to_cache(char *url, char *data) {
 
-  printf("[add_to_cache] start to add to cache\n");
-  while (1) {
-    P(&cache->w);
-    printf("[add_to_cache] got the cache->w\n");
+  printf("[add_to_cache] start to add to cache for url %s\n", url);
+  P(&cache->w);
+  printf("[add_to_cache] got the cache->w\n");
 
-    // check whether the url is in cache already
-    int empty_index = -1;
-    int smallest_index = -1;
-    int smallest_ts = __INT_MAX__;
-    int i;
-    for (i = 0; i < MAX_CACHE_NUM; ++i) {
-      if (cache->blocks[i]->is_empty == 1) {
-        if (empty_index == -1) {
-          empty_index = i;
-        }
-      } else {
-        // find the same url
-        if (strcmp(url, cache->blocks[i]->url) == 0) {
-          V(&cache->w);
-          printf("[add_to_cache] find the same url in cache\n");
-          printf("[add_to_cache] finish to add to cache\n");
-          return 1;
-        }
-        if (cache->blocks[i]->timestamp < smallest_ts) {
-          smallest_ts = cache->blocks[i]->timestamp;
-          smallest_index = i;
-        }
+  // check whether the url is in cache already
+  int empty_index = -1;
+  int smallest_index = -1;
+  int smallest_ts = __INT_MAX__;
+  int i;
+  for (i = 0; i < MAX_CACHE_NUM; ++i) {
+    if (cache->blocks[i]->is_empty == 1) {
+      if (empty_index == -1) {
+        empty_index = i;
       }
-    }
-
-    printf("[add_to_cache] empty_index: %d, smallest_index: %d\n", empty_index,
-           smallest_index);
-
-    // don't have the cache, find a position to add
-    if (empty_index == -1) { // already full
-      printf("[add_to_cache] cache is full and replace content in the LRU block in %d\n",
-             smallest_index);
-      if (smallest_index == -1) {
-        printf("cache is full but can't find LRU block");
-        exit(1);
-      }
-      // if already full, evict the smallest timestamp one
-      cache->blocks[smallest_index]->url = url;
-      cache->blocks[smallest_index]->data = data;
-      cache->blocks[smallest_index]->timestamp = 1;
-      cache->blocks[smallest_index]->is_empty = 0;
     } else {
-      printf("[add_to_cache] cache is not full and add to the empty block in %d\n",
-             empty_index);
-      if (cache->blocks[empty_index]->is_empty == 0) {
-        printf("bug exists");
-        exit(1);
+      // find the same url
+      if (strcmp(url, cache->blocks[i]->url) == 0) {
+        V(&cache->w);
+        printf("[add_to_cache] find the same url %s in cache\n", url);
+        printf("[add_to_cache] finish to add to cache\n");
+        return 1;
       }
-      // add to the cache
-      cache->blocks[empty_index]->url = url;
-      cache->blocks[empty_index]->data = data;
-      cache->blocks[empty_index]->timestamp = 1;
-      cache->blocks[empty_index]->is_empty = 0;
+      if (cache->blocks[i]->timestamp < smallest_ts) {
+        smallest_ts = cache->blocks[i]->timestamp;
+        smallest_index = i;
+      }
     }
-
-    V(&cache->w);
-    printf("[add_to_cache] release the cache->w\n");
   }
 
+  printf("[add_to_cache] empty_index: %d, smallest_index: %d\n", empty_index,
+         smallest_index);
+
+  // don't have the cache, find a position to add
+  if (empty_index == -1) { // already full
+    printf("[add_to_cache] cache is full and replace content in the LRU "
+           "block in %d\n",
+           smallest_index);
+    if (smallest_index == -1) {
+      printf("cache is full but can't find LRU block");
+      exit(1);
+    }
+    // if already full, evict the smallest timestamp one
+    strcpy(cache->blocks[smallest_index]->url, url);
+    strcpy(cache->blocks[smallest_index]->data, data);
+    cache->blocks[smallest_index]->timestamp = 1;
+    cache->blocks[smallest_index]->is_empty = 0;
+  } else {
+    printf(
+        "[add_to_cache] cache is not full and add to the empty block in %d\n",
+        empty_index);
+    if (cache->blocks[empty_index]->is_empty == 0) {
+      printf("bug exists");
+      exit(1);
+    }
+    // add to the cache
+    strcpy(cache->blocks[empty_index]->url, url);
+    strcpy(cache->blocks[empty_index]->data, data);
+    cache->blocks[empty_index]->timestamp = 1;
+    cache->blocks[empty_index]->is_empty = 0;
+  }
+  // print all blocks info
+  printf("[add_to_cache] start to print all blocks info\n");
+  for (int i = 0; i < MAX_CACHE_NUM; ++i) {
+    if (cache->blocks[i]->is_empty == 0) {
+      printf("[add_to_cache] block %d: url: %s, timestamp: %d, is_empty: %d, "
+             "size: %ld\n",
+             i, cache->blocks[i]->url, cache->blocks[i]->timestamp,
+             cache->blocks[i]->is_empty, strlen(cache->blocks[i]->data));
+    } else {
+      printf("[add_to_cache] block %d is empty\n", i);
+    }
+  }
+  printf("[add_to_cache] finish to print all blocks info\n");
+
+  V(&cache->w);
+  printf("[add_to_cache] release the cache->w\n");
+
   printf("[add_to_cache] finish to add to cache\n");
+  return 0;
 }
 
 char *get_from_cache(char *url) {
@@ -728,10 +751,8 @@ char *get_from_cache(char *url) {
 
 void free_cache(void) {
   for (int i = 0; i < MAX_CACHE_NUM; ++i) {
-    if (cache->blocks[i]->is_empty == 0) {
-      Free(cache->blocks[i]->url);
-      Free(cache->blocks[i]->data);
-    }
+    Free(cache->blocks[i]->url);
+    Free(cache->blocks[i]->data);
     Free(cache->blocks[i]);
   }
   Free(cache);

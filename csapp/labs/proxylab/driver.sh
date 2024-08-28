@@ -21,7 +21,7 @@ PROXY_DIR="./.proxy"
 NOPROXY_DIR="./.noproxy"
 TIMEOUT=5
 MAX_RAND=63000
-PORT_START=1024
+PORT_START=6000
 PORT_MAX=65000
 MAX_PORT_TRIES=10
 
@@ -211,7 +211,7 @@ echo "*** Basic ***"
 tiny_port=$(free_port)
 echo "Starting tiny on ${tiny_port}"
 cd ./tiny
-./tiny ${tiny_port}  &> tiny-$(date +%Y%m%d%H%M%S).log  &
+./tiny ${tiny_port}  &> /dev/null  &
 tiny_pid=$!
 cd ${HOME_DIR}
 
