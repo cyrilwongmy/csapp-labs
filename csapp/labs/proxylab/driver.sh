@@ -21,7 +21,7 @@ PROXY_DIR="./.proxy"
 NOPROXY_DIR="./.noproxy"
 TIMEOUT=5
 MAX_RAND=63000
-PORT_START=1024
+PORT_START=6000
 PORT_MAX=65000
 MAX_PORT_TRIES=10
 
@@ -201,7 +201,7 @@ fi
 
 # Add a handler to generate a meaningful timeout message
 trap 'echo "Timeout waiting for the server to grab the port reserved for it"; kill $$' ALRM
-
+ 
 #####
 # Basic
 #
@@ -211,7 +211,7 @@ echo "*** Basic ***"
 tiny_port=$(free_port)
 echo "Starting tiny on ${tiny_port}"
 cd ./tiny
-./tiny ${tiny_port}   &> /dev/null  &
+./tiny ${tiny_port}  &> /dev/null  &
 tiny_pid=$!
 cd ${HOME_DIR}
 
@@ -221,10 +221,10 @@ wait_for_port_use "${tiny_port}"
 # Run the proxy
 proxy_port=$(free_port)
 echo "Starting proxy on ${proxy_port}"
-./proxy ${proxy_port}  &> /dev/null &
+./proxy ${proxy_port} > proxy-$(date +%Y%m%d%H%M%S).log &
 proxy_pid=$!
 
-# Wait for the proxy to start in earnest
+# # Wait for the proxy to start in earnest
 wait_for_port_use "${proxy_port}"
 
 
@@ -254,6 +254,12 @@ do
         echo "   Success: Files are identical."
     else
         echo "   Failure: Files differ."
+        echo "Fill diff exit: Killing tiny and proxy"
+        kill $tiny_pid 2> /dev/null
+        wait $tiny_pid 2> /dev/null
+        kill $proxy_pid 2> /dev/null
+        wait $proxy_pid 2> /dev/null
+        exit
     fi
 done
 
@@ -298,7 +304,7 @@ wait_for_port_use "${proxy_port}"
 # Run a special blocking nop-server that never responds to requests
 nop_port=$(free_port)
 echo "Starting the blocking NOP server on port ${nop_port}"
-./nop-server.py ${nop_port} &> /dev/null &
+python3 nop-server.py ${nop_port} &> /dev/null &
 nop_pid=$!
 
 # Wait for the nop server to start in earnest
@@ -406,4 +412,3 @@ maxScore=`expr ${MAX_BASIC} + ${MAX_CACHE} + ${MAX_CONCURRENCY}`
 echo ""
 echo "totalScore: ${totalScore}/${maxScore}"
 exit
-
